@@ -1,0 +1,988 @@
+---
+title: "Financial Independence Analysis"
+author: "Tina Yi"
+date: "2023-10-18"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+fontsize: 9pt
+mainfont: "Times New Roman"
+header-includes:
+  - "\\usepackage{titling}"
+  - "\\pretitle{\\begin{center}\\fontsize{12pt}{14pt}\\selectfont\\fontfamily{ptm}\\selectfont}"
+  - "\\posttitle{\\par\\end{center}}"
+  - "\\usepackage{scrlayer-scrpage}" 
+  - "\\addtokomafont{disposition}{\\rmfamily}"
+editor: visual
+---
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# Load required libraries
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(geosphere)
+library(car)
+library(corrplot)
+library(caret)
+library(knitr)
+library(sjPlot)
+library("ISLR")
+library("SmartEDA")
+library(DataExplorer)
+library(pROC)
+library(gridExtra)
+library(gtsummary)
+library(gt)
+library(summarytools)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+```
+
+**Overview:** The research uses the Reddit finance dataset, which is a Reddit survey on financial independence. This dataset comprised 1998 observations and 65 variables. The goal of this research is to investigate which factors contribute to whether or not someone considers themselves to be financially independent. This research investigates an inference problem.
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+library(openintro)
+data("reddit_finance")
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+summary(reddit_finance)
+glimpse(reddit_finance)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+view(reddit_finance)
+```
+
+**Priori Variable Selection**: From the original set of 65 variables, I refined the list to 45, grouping them into 12 unique categories. These categories covered a broad spectrum of factors influencing financial independence, such as the pandemic's effects, demographics, and financial status. I subsequently selected variables from this refined list, focusing on their relevance to financial independence in the Reddit Finance dataset, data integrity, non-redundancy, and potential confounding factors.
+
+1.  **Exclusion of Ambiguous Variables:** Variables difficult to interpret or categorize were excluded. For example, the 'age' variable was problematic due to its categorical nature with ten groups, including NAs. Converting it to a continuous variable could lead to misleading results. Uneven data distribution across age categories also made defining groups challenging. While I could group ages under and above 34 to minimize standard errors, there's no strong theoretical reason to choose 34 as a significant threshold in financial independence. Thus, I omitted the 'age' variable.
+2.  **Exclusion Based on Data Quality**: Variables with a significant number of missing values were left out to ensure the reliability of the dataset, such as 'Outstanding credit cards/personal loans' and 'Outstanding medical debt'. These variables, while potentially informative, carried the risk of introducing biases and limitations.
+3.  **Minimizing Redundancy:** For each category, a single, most representative variable was chosen. For example, 'pandemic financial impact' was chosen over similar variables like 'pandemic income change'. This approach was used across categories such as demographic, education, and financial to prevent overlapping measurements.
+4.  **Consideration of Potential Confounders**: Key variables known to be confounding factors were incorporated into the analysis. Variables like gender, race, and education, known to act as confounding factors, were included. For example, race/gender could confound the relationship between education and financial independence. These variables were incorporated to control for their effects and provide a comprehensive understanding of the factors influencing financial independence within the Reddit community.
+
+I carefully selected an initial set of 11 predictor variables based on their expected relationship with financial independence.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Define the table data
+data <- data.frame(
+  `Binary Outcome` = c("Financial Independence"),
+  `Continuous Predictors` = c("2020 Gross Income, Cash, 2020 Housing Expenditure, 2020 Necessities Expenditure"),
+  `Categorical Predictors` = c("Pandemic Financial Impact, Race, Gender, Education, Children, Country, Employer")
+)
+
+# Print the table in markdown format
+kable(data)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+new_data <- reddit_finance[c(
+  'fin_indy',
+  'pan_financial_impact',
+  'race_eth',
+  'gender',
+  'edu',
+  'children',
+  'country',
+  'employer',
+  '2020_gross_inc',
+  'cash',
+  '2020_housing_exp',
+  '2020_necessities_exp'
+)]
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# Function to explore a column
+explore_column <- function(column) {
+  cat("===========================================\n")
+  cat("Exploring column:", column, "\n")
+  
+  # Check if the variable is numeric (continuous) or categorical
+  if (is.numeric(new_data[[column]]) || is.integer(new_data[[column]])) {
+    cat("Type: Continuous\n")
+    
+    # Display summary statistics
+    cat("Summary statistics:\n")
+    print(summary(new_data[[column]]))
+  } else {
+    cat("Type: Categorical\n")
+    
+    # Display unique values or levels
+    cat("Unique values/levels:\n")
+    print(table(new_data[[column]]))
+  }
+  cat("\n")
+}
+
+# Explore each column in the new_data dataframe
+for (column in names(new_data)) {
+  explore_column(column)
+}
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+#Initial Model Fitting Without Data Cleaning (Including variable age), showing high standard errors in certain varaible categories
+initial_model <- glm(factor(fin_indy) ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`+age, data = reddit_finance, family = binomial)
+summary(initial_model)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+#Initial Model Fitting Without Data Cleaning (excluding variable age), showing high standard errors in certain varaible categories
+initial_model2 <- glm(factor(fin_indy) ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`, data = reddit_finance, family = binomial)
+summary(initial_model2)
+```
+
+**Data Cleaning**: After undergoing the cleaning steps, the refined dataset now contains **12** variables with a total of **1,508** observations.
+
+-   Outcome variable: '**Financial Independence**' had no NAs and was categorized into "Financially Independent" (147 observations) and "Not Financially Independent" (1851 observations).
+
+-   Categorical predictor variables: (1) **Pandemic Financial Impact**: After filtering out 10 NAs, I grouped the data into three categories: "Positive" , "Negative" , and "Neutral". (2) **Race**: I removed instances with 29 'N/A', 17 'NA', and 62 'Decline to State'. Given the significant disparity in the number of data points for "White/Caucasian" (1458 observations) compared to the other race categories, I made an executive decision to group the data into two broader categories: "White/Caucasian" and "Non-White/Caucasian". This was based on both practical considerations of reducing standard error cause by small data size and an underlying assumption that financial independence perceptions might differ between white and non-white individuals. (3) **Gender**: After filtering out 2 NAs and 7 'Decline to State', and due to concerns about small sample sizes of "Non-binary" group (9 observations) that lead to high standard errors, I decided to drop the "Non-binary" group and categorize gender into two main groups: "Male" and "Female". (4) **Education**: After removing 3 NAs, I underwent an initial reorganization by merging similar educational categories. Further, I grouped these categories into "Bachelor's Degree," "Beyond Bachelor's Degree," and "Below Bachelor's Degree" based on the assumption that having a bachelor's degree may be a significant threshold affecting financial independence. (5) **Children**: I filtered out 43 'N/A' and 7 'NA' and categorized the data into three groups **"**Do not have children, but intend to" "Do not have children, and do not intend to" and "Have Children". (6) **Country**: No NAs. I merged the "US Armed Forces" category with the "United States" category. I then grouped all remaining countries into a "Non-US" category. Thus, I ended up categorized the data into two groups "United States" and "Non-US". This decision was driven by the situation that the US had 1554 observations, while most other countries had fewer than 10 observations each, potentially leading to large standard errors and bias. Additionally, this categorization was influenced by the assumption that individuals in the US may perceive themselves as more financially independent compared to those in non-US countries. (7) **Employer**: I removed 8 NAs and combined "public agency" into the "public corporation" category based on the assumption of both belonging to the public sector. Thus, I eneded up categorized the data into four groups "nonprofit corporation", "public corporation", "private corporation" and "self-employed".
+
+-   Continuous predictor variables: Any missing values were dropped from the variables "**2022 Gross Income**" (NAs=38), "**Cash**" (NAs=35), "**2020 Housing Expenditure**"(NAs=87), and "**2020 Necessities Expenditure**"(NAs=117).
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+fin_indy_count <- new_data %>%
+  group_by(fin_indy) %>%
+  summarise(count = n())
+
+fin_indy_count
+
+new_data <- new_data %>%
+  mutate(
+    fin_indy = factor(
+      ifelse(fin_indy == "Yes", 1, ifelse(fin_indy == "No", 0, NA)),
+      levels = c(0, 1),
+      labels = c("Not Financially Independent", "Financially Independent")
+    )
+  )
+
+fin_indy_count <- new_data %>%
+  group_by(fin_indy) %>%
+  summarise(count = n())
+
+fin_indy_count
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+pan_financial_impact_count <- new_data %>%
+  group_by(pan_financial_impact) %>%
+  summarise(count = n())
+
+pan_financial_impact_count
+
+new_data <- new_data %>%
+  filter(!is.na(pan_financial_impact)) %>%
+  mutate(pan_financial_impact = factor(pan_financial_impact))
+
+pan_financial_impact_count <- new_data %>%
+  group_by(pan_financial_impact) %>%
+  summarise(count = n())
+
+pan_financial_impact_count
+
+any(is.na(new_data$pan_financial_impact))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+race_count <- new_data %>%
+  group_by(race_eth) %>%
+  summarise(count = n())
+
+race_count
+
+new_data <- new_data %>%
+  filter(race_eth != "N/A" & race_eth != "NA" & race_eth != "Decline to state")
+
+race_count <- new_data %>%
+  group_by(race_eth) %>%
+  summarise(count = n())
+
+race_count
+
+new_data <- new_data %>%
+  mutate(
+    race_eth = ifelse(race_eth %in% c("White / Caucasian"), "White / Caucasian", "Non-White / Caucasian"),
+    race_eth = factor(race_eth)
+  )
+
+race_count <- new_data %>%
+  group_by(race_eth) %>%
+  summarise(count = n())
+
+race_count
+
+any(is.na(new_data$race_eth))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+gender_count <- new_data %>%
+  group_by(gender) %>%
+  summarise(count = n())
+
+gender_count
+
+new_data <- new_data %>%
+  filter(!is.na(gender) & !gender %in% c("Non-Binary", "Non-binary", "Decline to State")) %>%
+  mutate(gender = factor(gender))
+
+gender_count <- new_data %>%
+  group_by(gender) %>%
+  summarise(count = n())
+
+gender_count
+
+any(is.na(new_data$gender))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+edu_count <- new_data %>%
+  group_by(edu) %>%
+  summarise(count = n())
+
+edu_count
+
+na_count <- sum(is.na(new_data$edu))
+
+na_count
+
+new_data <- new_data %>%
+  mutate(edu = case_when(
+    edu %in% c("Doctorate / Post Graduate", "Doctorate / Post-Graduate") ~ "Doctorate/Post-Graduate",
+    edu %in% c("Graduate degree", "Master's Degree") ~ "Graduate/Master's Degree",
+    edu %in% c("High School diploma / GED", "Some high school", "Less than high school") ~ "High School or Less",
+    edu %in% c("Some college, no degree", "Trade School Degree") ~ "Some college/Trade School",
+    TRUE ~ edu  # Keep other values as they are
+  )) %>%
+  filter(!is.na(edu))
+
+edu_count <- new_data %>%
+  group_by(edu) %>%
+  summarise(count = n())
+
+edu_count
+
+any(is.na(new_data$edu))
+
+library(dplyr)
+
+new_data <- new_data %>%
+  mutate(
+    edu = case_when(
+      edu %in% c("Bachelor's Degree") ~ "Bachelor's Degree",
+      edu %in% c("Doctorate/Post-Graduate", "Graduate/Master's Degree") ~ "Beyond Bachelor's Degree",
+      TRUE ~ "Below Bachelor's Degree"  # Combine all other values into "Below Bachelor's Degree"
+    ),
+    edu = factor(edu)
+  ) %>%
+  filter(!is.na(edu))  # Remove rows with NA values in edu
+
+# Recalculate the count of each education category after the changes
+edu_count <- new_data %>%
+  group_by(edu) %>%
+  summarise(count = n())
+
+edu_count
+
+# Check if there are any remaining NA values in the edu column
+any(is.na(new_data$edu))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+children_count <- new_data %>%
+  group_by(children) %>%
+  summarise(count = n())
+
+children_count
+
+new_data <- new_data %>%
+  filter(children != "N/A" & race_eth != "NA") %>%
+  mutate(children = factor(children))
+
+children_count <- new_data %>%
+  group_by(children) %>%
+  summarise(count = n())
+
+children_count
+
+any(is.na(new_data$children))
+
+distinct_categories <- unique(new_data$children)
+print(distinct_categories)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+country_count <- new_data %>%
+  group_by(country) %>%
+  summarise(count = n())
+
+country_count
+
+new_data <- new_data %>%
+  mutate(
+    country = ifelse(country %in% c("US Armed Forces", "United States"), "United States", "Non-US"),
+    country = factor(country)
+  )
+
+country_count <- new_data %>%
+  group_by(country) %>%
+  summarise(count = n())
+
+country_count
+
+any(is.na(new_data$country))
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+employer_count <- new_data %>%
+  group_by(employer) %>%
+  summarise(count = n())
+
+employer_count
+
+new_data <- new_data %>%
+  filter(!is.na(employer)) 
+
+employer_count <- new_data %>%
+  group_by(employer) %>%
+  summarise(count = n())
+
+employer_count
+
+any(is.na(new_data$employer))
+
+# Update employer categories
+new_data <- new_data %>%
+  mutate(
+    employer = case_when(
+      employer %in% c("Nonprofit corporation") ~ "Nonprofit corporation",
+      employer %in% c("Private corporation") ~ "Private corporation",
+      employer %in% c("Public agency", "Public corporation") ~ "Public corporation",
+      employer %in% c("Self-employed") ~ "Self-employed",
+      TRUE ~ NA_character_  # Ensure all other categories are treated as NA
+    ),
+    employer = factor(employer)
+  ) %>%
+  filter(!is.na(employer))  # Remove rows with NA values in employer
+
+
+# Recalculate the count of each employer category after the changes
+employer_count <- new_data %>%
+  group_by(employer) %>%
+  summarise(count = n())
+
+employer_count
+# Check if there are any remaining NA values in the employer column
+any(is.na(new_data$employer))
+
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+summary(new_data$'2020_gross_inc')
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+new_data <- new_data %>%
+  filter(!(is.na(`2020_gross_inc`) | `2020_gross_inc` == ""))
+
+summary(new_data$'2020_gross_inc')
+
+any(is.na(new_data$'2020_gross_inc'))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+summary(new_data$cash)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+new_data <- new_data %>%
+  filter(!(is.na(cash) | cash == ""))
+
+summary(new_data$cash)
+
+any(is.na(new_data$cash))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+summary(new_data$'2020_housing_exp')
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+new_data <- new_data %>%
+  filter(!(is.na(`2020_housing_exp`) | `2020_housing_exp` == ""))
+
+summary(new_data$`2020_housing_exp`)
+
+any(is.na(new_data$`2020_housing_exp`))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+summary(new_data$'2020_necessities_exp')
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+new_data <- new_data %>%
+  filter(!(is.na(`2020_necessities_exp`) | `2020_necessities_exp` == ""))
+
+summary(new_data$`2020_necessities_exp`)
+
+any(is.na(new_data$`2020_necessities_exp`))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+view(new_data)
+glimpse(new_data)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+sum(is.na(new_data$pan_financial_impact))
+sum(is.na(new_data$race_eth))
+sum(is.na(new_data$gender))
+sum(is.na(new_data$edu))
+sum(is.na(new_data$children))
+sum(is.na(new_data$country))
+sum(is.na(new_data$employer))
+sum(is.na(new_data$`2020_gross_inc`))
+sum(is.na(new_data$cash))
+sum(is.na(new_data$`2020_housing_exp`))
+sum(is.na(new_data$`2020_necessities_exp`))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+new_data_renamed<- new_data %>%
+  rename(
+    "Financial Independence" = fin_indy,
+    "Pandemic Financial Impact" = pan_financial_impact,
+    "Race Ethnicity" = race_eth,
+    "Gender" = gender,
+    "Education Level" = edu,
+    "Children" = children,
+    "Country" = country,
+    "Employer Type" = employer,
+    "Gross Income 2020" = `2020_gross_inc`,
+    "Cash Equivalents" = cash,
+    "Housing Expenses 2020" = `2020_housing_exp`,
+    "Necessities Expenses 2020" = `2020_necessities_exp`
+  )
+
+```
+
+```{r, echo=FALSE, fig.height=3, fig.width=12, message=FALSE, warning=FALSE}
+plot_bar(new_data_renamed)
+```
+
+```{r, echo=FALSE, fig.height=2, fig.width=18, message=FALSE, warning=FALSE}
+plot_histogram(new_data_renamed)
+```
+
+**Modeling:** Logistic regression is ideal for this research, aiming to identify factors influencing one's perception of financial independence. The study has a binary outcome, perfectly suited for logistic regression, which predicts the likelihood of binary results using various predictor variables. It can highlight significant predictors and accommodate both continuous and categorical variables. Given the research's binary nature, logistic regression is a fitting method for data analysis.
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+model <- glm(fin_indy ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`, data = new_data, family = binomial)
+summary(model)
+```
+
+**VIF:** After initial model fitting, I employed GVIF to assess multicollinearity in the logistic regression. While most predictors showed minimal multicollinearity with GVIF close to 1, the variables 2020 gross income, 2020 housing expenditure, and 2020 necessities expenditure had slightly elevated GVIF values between 1.5-2, yet still within acceptable limits. All are below the threshold of concern.
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+vif(model)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# Set up a grid of plots
+plot(new_data$pan_financial_impact, predict(model))
+plot(new_data$pan_financial_impact, predict(model))
+plot(new_data$race_eth, predict(model))
+plot(new_data$gender, predict(model))
+plot(new_data$edu, predict(model))
+plot(new_data$children, predict(model))
+plot(new_data$country, predict(model))
+plot(new_data$employer, predict(model))
+plot(new_data$`2020_gross_inc`, predict(model))
+plot(new_data$cash, predict(model))
+plot(new_data$`2020_housing_exp`, predict(model))
+plot(new_data$`2020_necessities_exp`, predict(model))
+```
+
+**Influential Points:** After the initial modeling, I observed that children(Do not have children, but intend to) and 2020 housing expenditure have significant p-value(\*\* ), employer(Self-employed) have significant p-value(\* ), and 2020 gross income have significant p value (\*\*\* ). From the Cook's distance plot, I checked if the logistic regression model have influential points that need to be handled. I observed that point 133 sticks out compared to the rest. I removed point 133 and reran the main regression. After removing point 133, I found that cash's p-value becomes significant (\*) and 2020 housing expenditure's p-value significance decreased from (\*\*) to (\*). Therefore, point 133 is indeed influential. Then I removed point 155 that sticked out compared to the rest and reran the main regression. I found that cash's p value's significance increase from (\*) to (\*\*\*) and 2020 housing expenditure's p-value became insignificant after the removal of 155. This proves that 155 is indeed an influential point. Afterwards, I dropped point 635 that sticks out. Upon removing point 635 and observing my regression outcome, I concluded that point 635 is indeed influential as the p-value of 2020 housing expenditure and 2020 necessity expenditure becomes significant(\*) after its removal, indicating that this point has a substantial impact on the model as a whole. I also removed point 608, and revisited the model. However, the significance level of the model remained unchanged, suggesting that point 608 is not an influential point as it doesn't have substantial impact on the model as a whole. I decided to keep point 608 and stop my influential points checking at this point. In the end, I removed three influential points, 133, 155 and 635.
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+plot(model, which=4)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+cooks_new_data <- new_data %>%
+  filter(!(row.names(new_data) %in% c(133)))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+model_cooks1 <- glm(fin_indy ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`, data = cooks_new_data, family = binomial)
+summary(model_cooks1)
+
+plot(model_cooks1, which=4)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+cooks_2_new_data <- cooks_new_data %>%
+  filter(!(row.names(cooks_new_data) %in% c(155)))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+model_cooks2 <- glm(fin_indy ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`, data = cooks_2_new_data, family = binomial)
+summary(model_cooks2)
+
+plot(model_cooks2, which=4)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+residual_new_data <- cooks_2_new_data %>%
+  filter(!(row.names(cooks_2_new_data) %in% c(635)))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+model_residual <- glm(fin_indy ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`, data = residual_new_data, family = binomial)
+
+summary(model_residual)
+
+plot(model_residual, which=4)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+residual_2_new_data <- residual_new_data %>%
+  filter(!(row.names(residual_new_data) %in% c(608)))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+model_residual_2 <- glm(fin_indy ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`, data = residual_2_new_data, family = binomial)
+
+summary(model_residual_2)
+
+plot(model_residual_2, which=4)
+```
+
+**Logistic Regression Assumptions:** (1) **Linearity**: For this model, I assume a linear relationship between the log odds of the outcome and its predictors. Examining the predicted log odds plots revealed some outliers for continuous variables, yet they're not influential. Excluding these outliers, the data demonstrates good linearity. While outliers are common in financial variables, I chose not to transform predictors to preserve interpretive clarity. (2) **Independence**: Observations are independent of each other, which is addressed by the study design.
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+model2 <- glm(fin_indy ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`, data = residual_new_data, family = binomial)
+
+summary(model2)
+
+plot(model2, which=4)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+#Plot for Categorical Varaibles
+plot(residual_new_data$pan_financial_impact, predict(model2))
+plot(residual_new_data$race_eth, predict(model2))
+plot(residual_new_data$gender, predict(model2))
+plot(residual_new_data$edu, predict(model2))
+plot(residual_new_data$children, predict(model2))
+plot(residual_new_data$country, predict(model2))
+plot(residual_new_data$employer, predict(model2))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# Check Logistic Regression Assumptions for Continuous Variables
+plot(residual_new_data$`2020_gross_inc`, predict(model2))
+plot(residual_new_data$cash, predict(model2))
+plot(residual_new_data$`2020_housing_exp`, predict(model2))
+plot(residual_new_data$`2020_necessities_exp`, predict(model2))
+```
+
+**Summary Output Table:**
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# Log odds scale:
+#
+# Coefficients:
+#
+# The log odds of being financially independent for people who don't have children but intend to are 7.680^e-01 lower than the log odds of being financially independent for people who don't have children but do not intend to. This result is statistically significant with p value=0.00485 (**)
+#
+# The log odds of being financially independent for people who are self-employed are 1.091^e+00 higher than the log odds of being financially independent for people whose employer are non-profit organization. This result is statistically significant with p value=0.04524 (*)
+#
+# With each additional 2020 gross income, the log odds of being financially independent increases by 2.813^e-06, all else held constant. This result is statistically significant with p value=2.24^e-05 (***)
+#
+# With each additional cash, the log odds of being financially independent increases by 3.935^e-06, all else held constant. This result is statistically significant with p value=6.58^e-06 (***)
+#
+# With each additional 2020 housing expenditure, the log odds of being financially independent decreases by 1.674^e-05, all else held constant. This result is statistically significant with p value=0.03496(*)
+#
+# With each additional 2020 necessities expenditure, the log odds of being financially independent decreases by 1.674^e-05, all else held constant. This result is statistically significant with p value=0.04193(*)
+#
+# Confidence Interval:
+#
+# We are 95% confident that the true difference in log odds of being financially independent between people who do not have children, but intend to and people who do not have children, but do not intend to is between -1.311692e+00 and -2.383385e-01
+#
+# We are 95% confident that the true difference in log odds of being financially independent between people who are self-employed and people whose employer are non-profit corporation is between 3.972453e-02 and 2.201321e+00
+#
+# We are 95% confident that the true difference in log odds of being financially independent of increasing 2020 gross income by 1 unit lies between 1.505801e-06 and 4.113631e-06
+#
+# We are 95% confident that the true difference in log odds of being financially independent of increasing cash by 1 unit lies between 2.261391e-06 and 5.661018e-06
+#
+# We are 95% confident that the true difference in log odds of being financially independent of increasing 2020 housing expenditure by 1 unit lies between -3.346062e-05 and -2.147392e-06
+#
+# We are 95% confident that the true difference in log odds of being financially independent of increasing 2020 necessities expenditure by 1 unit lies between -6.304847e-05 and -9.682497e-06
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+model2 <- glm(fin_indy ~ pan_financial_impact + race_eth + gender + edu + children + country + employer + `2020_gross_inc` + cash + `2020_housing_exp` + `2020_necessities_exp`, data = residual_new_data, family = binomial)
+
+summary(model2)
+
+#plot(model2, which=4)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+exp(coef(model2))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+confint(model2)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+exp(confint(model2))
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# Load necessary libraries
+library(gtsummary)
+library(dplyr)
+
+# Make a copy of the data
+final_data <- residual_new_data
+
+# Rename variables in final_data for cleaner output
+colnames(final_data)[colnames(final_data) == "fin_indy"] <- "Financial Independence"
+colnames(final_data)[colnames(final_data) == "pan_financial_impact"] <- "Pandemic Financial Impact"
+colnames(final_data)[colnames(final_data) == "race_eth"] <- "Race"
+colnames(final_data)[colnames(final_data) == "gender"] <- "Gender"
+colnames(final_data)[colnames(final_data) == "edu"] <- "Education"
+colnames(final_data)[colnames(final_data) == "children"] <- "Children"
+colnames(final_data)[colnames(final_data) == "country"] <- "Country"
+colnames(final_data)[colnames(final_data) == "employer"] <- "Employer"
+colnames(final_data)[colnames(final_data) == "2020_gross_inc"] <- "2020 Gross Income"
+colnames(final_data)[colnames(final_data) == "cash"] <- "Cash"
+colnames(final_data)[colnames(final_data) == "2020_housing_exp"] <- "2020 Housing Expenditure"
+
+# Running the regression with the renamed variables
+model2 <- glm(`Financial Independence` ~ `Pandemic Financial Impact` + Race + Gender + Education + Children + Country + Employer + `2020 Gross Income` + Cash + `2020 Housing Expenditure` + `2020_necessities_exp`, data = final_data, family = binomial)
+
+# Summarizing the regression model
+regression_table <- tbl_regression(model2, exponentiate = TRUE) 
+
+# Display the regression table
+regression_table
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# Summarizing the regression model 
+regression_table2 <- final_data %>%
+  select(`Financial Independence`, `Pandemic Financial Impact`, Race, Gender, Education, Children, Country, Employer, `2020 Gross Income`, Cash, `2020 Housing Expenditure`, `2020_necessities_exp`) %>%
+  tbl_uvregression(
+    method = glm,
+    y = `Financial Independence`,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 2)
+  ) %>%
+  add_global_p() %>% # add global p-value
+  add_nevent() %>% # add number of events of the outcome
+  add_q() %>% # adjusts global p-values for multiple testing
+  bold_p() %>% # bold p-values under a given threshold (default 0.05)
+  bold_p(t = 0.10, q = TRUE) %>% # now bold q-values under the threshold of 0.10
+  bold_labels()
+
+# Display the regression table
+regression_table2
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+tab_model(model2, show.se = TRUE)
+```
+
+**Model Assessment:** To evaluate the performance of my model in determining financial independence, I used a combination of statistical metrics and visual tools, including ROC curve and confusion matrix.
+
+-   **Receiver Operating Characteristic (ROC):** For a visual assessment, I plotted a ROC curve utilized an optimal threshold of 0.085. The AUC stands at 0.773, suggests that while the model has some discriminatory power, there's room for improvement.
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+#Create ROC Curve with 0.5 thresh hold
+roc_obj2 <- suppressMessages({
+  roc(residual_new_data$fin_indy, fitted(model2), 
+      print.thres=0.5, 
+      print.auc=TRUE, 
+      plot=TRUE, 
+      legacy.axes=TRUE)
+})
+
+roc_obj2
+```
+
+```{r, echo=FALSE, fig.height=3, fig.width=6, message=FALSE, warning=FALSE, results='hide'}
+# Create ROC curve with the best thresh hold but suppress printed messages
+# Capture the output
+output <- capture.output({
+  roc_obj3 <- roc(residual_new_data$fin_indy ~ fitted(model2), 
+                   print.thres = "best", 
+                   print.auc = TRUE, 
+                   plot = TRUE, 
+                   legacy.axes = TRUE)
+})
+
+# Print the captured output
+cat(output, sep = "\n")
+
+# Access the roc_obj3 variable
+roc_obj3
+```
+
+-   **Confusion Matrix**: My primary tool was the confusion matrix, which provides a breakdown of where the model's predictions align with or deviate from the actual outcomes. In this confusion matrix, I used the best thresh hold 0.085.
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+predicted_labels_2 <- ifelse(fitted(model2) > 0.085, 
+                           "Financially Independent", 
+                           "Not Financially Independent")
+
+actual_labels_2 <- factor(residual_new_data$fin_indy, 
+                        levels = c("Not Financially Independent", "Financially Independent"))
+
+predicted_labels_factor_2 <- factor(predicted_labels_2, 
+                                 levels = c("Not Financially Independent", "Financially Independent"))
+
+cm2 <- confusionMatrix(predicted_labels_factor_2, 
+                      actual_labels_2,
+                      positive = "Financially Independent",
+                      mode = "everything")
+
+print(cm2)
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# Extract the table from the confusionMatrix object
+confusion_table <- as.data.frame(as.table(cm2$table))
+
+# Set appropriate column names
+colnames(confusion_table) <- c("Predicted", "Actual", "Frequency")
+
+# Format the table with the gt package
+confusion_table_gt <- confusion_table %>%
+  gt() %>%
+  tab_header(
+    title = "Confusion Matrix"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(columns = everything())
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_row_groups()
+  )
+
+confusion_table_gt
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Create a dataframe with the specified metrics
+data <- data.frame(
+  Metric = c("Accuracy", "Kappa", "F1"),
+  Value = c("0.8419", "0.2682", "0.33889")
+)
+
+# Use the gt package to format the dataframe
+data %>%
+  gt() %>%
+  tab_header(
+    title = "Model Performance Metrics",
+    subtitle = "'Positive' Class: Financially Independent"
+  ) %>%
+  cols_label(
+    Metric = "Metric",
+    Value = "Value"
+  ) %>%
+  fmt_number(
+    columns = "Value",
+    decimals = 4,
+    use_seps = FALSE
+  )
+```
+
+In the model, I aim to discern factors affecting perceptions of financial independence. With 101 samples labeled as "Financially Independent" versus 1404 as "Not Financially Independent", there's a clear class imbalance. Hence, I've emphasized overall accuracy and the F1 score, which adeptly handles class imbalances by balancing precision and recall. The kappa score further illuminates this skewness.
+
+-   **Accuracy**: 84.19% of the total predictions were correct. This suggests that the model is doing fairly well, but it's essential to look at other metrics as well, especially when classes are imbalanced.
+
+-   **Kappa**: 0.2682 indicates a moderate agreement between actual and predicted classifications beyond chance. The Kappa score of 0.2682, though not high, suggests the model's predictions offer some advantage over random guessing, especially considering the imbalanced nature of the dataset.
+
+-   **F1 Score**: The harmonic mean of precision and recall is 33.89%. While not high, this score reflects the challenges of achieving a balance between precision and recall, especially in imbalanced datasets.
+
+In summary, while the model has a decent accuracy and specificity, it faces challenges in striking a balance between identifying those who are "Financially Independent" and those who are not. This is evident in the relatively low precision and F1 score. The class imbalance further complicates the model's performance, emphasizing the need for a nuanced evaluation beyond mere accuracy.
+
+**Results:** Based on the ouput table, it is evident that the variable children (don't have children, but intend to), employer (self-employed), 2020 gross income, cash, 2020 housing expenditure, and 2020 necessities expenditure significantly contribute to whether or not someone considers themselves to be financially independent, with p value each less than 0.05. The specific interpretation of these key results are listed below:
+
+-   The odds of being financially independent for people who do not have children, but intend to are 0.46 times the odds of being financially independent for people who do not have children, but do not intend to, all else held constant. (p value: 0.00485 \*\*) (Confidence Interval: 0.26936385 to 0.7879359)
+
+-   The odds of being financially independent for people who are self-employed are 2.98 times the odds of being financially independent for people whose employer are non-profit corporation, all else held constant. (p value: 0.04524 \*) (Confidence Interval: 1.04052411 to 9.0369451)
+
+-   With each additional 2020 gross income, the odds of being financially independent increase 1.0000028 times, all else held constant. (p value: 2.24e-05 \*\*\*) (Confidence Interval: 1.00000151 to 1.0000041)
+
+-   With each additional cash, the odds of being financially independent increase 1.0000039 times, all else held constant. (p value: 6.58e-06 \*\*\*) (Confidence Interval: 1.00000226 to 1.0000057)
+
+-   With each additional 2020 housing expenditure, the odds of being financially independent decrease 0.99 times, all else held constant. (p value: 0.03496 \*) (Confidence Interval: 0.99996654 to 0.9999979)
+
+-   With each additional 2020 necessities expenditure, the odds of being financially independent decrease 0.99 times, all else held constant. (p value: 0.04193 \*) (Confidence Interval: 0.99993695 to 0.9999903)
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+ggplot(residual_new_data, aes(x=`2020_gross_inc`, y=fin_indy)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5)
+
+ggplot(residual_new_data, aes(x=cash, y=fin_indy)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5)
+
+ggplot(residual_new_data, aes(x=`2020_housing_exp`, y=fin_indy)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5)
+
+ggplot(residual_new_data, aes(x=`2020_necessities_exp`, y=fin_indy)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5)
+
+ggplot(residual_new_data, aes(x=children, fill=fin_indy)) +
+  geom_bar()
+
+ggplot(residual_new_data, aes(x=employer, fill=fin_indy)) +
+  geom_bar()
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# For 2020_gross_inc vs fin_indy with color=children
+ggplot(residual_new_data, aes(x=`2020_gross_inc`, y=fin_indy, color=children)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5) +
+   theme_minimal() +
+   labs(x="2020 Gross Income", y="Financial Independence", color="Children")
+
+# For 2020_gross_inc vs fin_indy with color=employer
+ggplot(residual_new_data, aes(x=`2020_gross_inc`, y=fin_indy, color=employer)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5) +
+   theme_minimal() +
+   labs(x="2020 Gross Income", y="Financial Independence", color="Employer")
+
+# For cash vs fin_indy with color=children
+ggplot(residual_new_data, aes(x=cash, y=fin_indy, color=children)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5) +
+   theme_minimal() +
+   labs(x="Cash", y="Financial Independence", color="Children")
+
+# For cash vs fin_indy with color=employer
+ggplot(residual_new_data, aes(x=cash, y=fin_indy, color=employer)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5) +
+   theme_minimal() +
+   labs(x="Cash", y="Financial Independence", color="Employer")
+
+# For 2020_housing_exp vs fin_indy with color=children
+ggplot(residual_new_data, aes(x=`2020_housing_exp`, y=fin_indy, color=children)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5) +
+   theme_minimal() +
+   labs(x="2020 Housing Expense", y="Financial Independence", color="Children")
+
+# For 2020_housing_exp vs fin_indy with color=employer
+ggplot(residual_new_data, aes(x=`2020_housing_exp`, y=fin_indy, color=employer)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5) +
+   theme_minimal() +
+   labs(x="2020 Housing Expense", y="Financial Independence", color="Employer")
+
+# For 2020_necessities_exp vs fin_indy with color=children
+ggplot(residual_new_data, aes(x=`2020_necessities_exp`, y=fin_indy, color=children)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5) +
+   theme_minimal() +
+   labs(x="2020 Necessities Expense", y="Financial Independence", color="Children")
+
+# For 2020_necessities_exp vs fin_indy with color=employer
+ggplot(residual_new_data, aes(x=`2020_necessities_exp`, y=fin_indy, color=employer)) + 
+   geom_boxplot(alpha=0.5) + 
+   geom_jitter(width=0.3, alpha=0.5) +
+   theme_minimal() +
+   labs(x="2020 Necessities Expense", y="Financial Independence", color="Employer")
+
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+# For 2020_gross_inc vs fin_indy grouped by children
+ggplot(residual_new_data, aes(x=`2020_gross_inc`, y=fin_indy, fill=children)) + 
+    geom_boxplot() + 
+    labs(x="2020 Gross Income", y="Financial Independence", fill="Children") +
+    ggtitle("2020 Gross Income vs Financial Independence by Children")
+
+# For 2020_gross_inc vs fin_indy grouped by employer
+ggplot(residual_new_data, aes(x=`2020_gross_inc`, y=fin_indy, fill=employer)) + 
+    geom_boxplot() + 
+    labs(x="2020 Gross Income", y="Financial Independence", fill="Employer") +
+    ggtitle("2020 Gross Income vs Financial Independence by Employer")
+
+# For cash vs fin_indy grouped by children
+ggplot(residual_new_data, aes(x=cash, y=fin_indy, fill=children)) + 
+    geom_boxplot() + 
+    labs(x="Cash", y="Financial Independence", fill="Children") +
+    ggtitle("Cash vs Financial Independence by Children")
+
+# For cash vs fin_indy grouped by employer
+ggplot(residual_new_data, aes(x=cash, y=fin_indy, fill=employer)) + 
+    geom_boxplot() + 
+    labs(x="Cash", y="Financial Independence", fill="Employer") +
+    ggtitle("Cash vs Financial Independence by Employer")
+
+# For 2020_housing_exp vs fin_indy grouped by children
+ggplot(residual_new_data, aes(x=`2020_housing_exp`, y=fin_indy, fill=children)) + 
+    geom_boxplot() + 
+    labs(x="2020 Housing Expense", y="Financial Independence", fill="Children") +
+    ggtitle("2020 Housing Expense vs Financial Independence by Children")
+
+# For 2020_housing_exp vs fin_indy grouped by employer
+ggplot(residual_new_data, aes(x=`2020_housing_exp`, y=fin_indy, fill=employer)) + 
+    geom_boxplot() + 
+    labs(x="2020 Housing Expense", y="Financial Independence", fill="Employer") +
+    ggtitle("2020 Housing Expense vs Financial Independence by Employer")
+
+# For 2020_necessities_exp vs fin_indy grouped by children
+ggplot(residual_new_data, aes(x=`2020_necessities_exp`, y=fin_indy, fill=children)) + 
+    geom_boxplot() + 
+    labs(x="2020 Necessities Expense", y="Financial Independence", fill="Children") +
+    ggtitle("2020 Necessities Expense vs Financial Independence by Children")
+
+# For 2020_necessities_exp vs fin_indy grouped by employer
+ggplot(residual_new_data, aes(x=`2020_necessities_exp`, y=fin_indy, fill=employer)) + 
+    geom_boxplot() + 
+    labs(x="2020 Necessities Expense", y="Financial Independence", fill="Employer") +
+    ggtitle("2020 Necessities Expense vs Financial Independence by Employer")
+
+```
+
+**Visual Representation:** The graph below shows that having more cash is associated with greater financial independence, which aligns with the regression analysis. While the box plot initially suggested that intending to have children is linked to higher financial independence compared to not intending to have children, the regression model, which considers multiple factors, indicates that intending to have children is associated with lower financial independence.
+
+```{r, echo=FALSE, fig.height=3, fig.width=12, message=FALSE, warning=FALSE}
+# For cash vs fin_indy grouped by children
+ggplot(residual_new_data, aes(x=cash, y=fin_indy, fill=children)) + 
+    geom_boxplot() + 
+    labs(x="Cash", y="Financial Independence", fill="Children") +
+    ggtitle("Cash vs Financial Independence Group By Children Condition")
+```
+
+**Conclusion/Future work:** This analysis has both strengths and limitations. Its strengths include a robust variable selection from a sizable sample of 1505 and control for confounders. A significant limitation is the class imbalance: only 101 samples are 'Financially Independent' compared to 1404 that aren't. While the model is reasonably accurate, it struggles due to this imbalance. Future strategies could include resampling, using techniques like SMOTE, ensemble methods, or expanding the dataset to tackle the imbalance.
