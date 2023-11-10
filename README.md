@@ -8,6 +8,9 @@ This research delves into the intricacies of financial independence through an i
 **Research Objective:**
 At the heart of this study lies the quest to unravel the key determinants influencing individuals' perceptions and status of financial independence. By employing robust statistical methods and data exploration techniques, the research aims to identify and quantify the various factors that contribute to an individual's self-assessment of their financial independence.
 
+**Research Method:**
+In this study, logistic regression serves as the optimal analytical method, tailored specifically for identifying the various factors that influence an individual's perception of financial independence.
+
 **Dataset Highlights:**
 - **Size:** 1,998 Observations
 - **Variables:** 65 (covering a range of financial aspects)
@@ -17,7 +20,7 @@ At the heart of this study lies the quest to unravel the key determinants influe
 This investigation is pivotal for understanding the broader implications of financial decision-making and independence in today's context. The insights gained could be instrumental for financial advisors, policy makers, and individuals striving to comprehend the dynamics of achieving financial independence.
 
 **Project Report:**
-Here is the Financial Independence Analysis Final Report.pdf
+Here is the Financial Independence Analysis Final Report.pdf(./Financial Independence Analysis.pdf)
 
 **Original Data Source:**
 https://www.openintro.org/data/index.php?data=reddit_finance
