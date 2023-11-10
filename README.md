@@ -20,7 +20,7 @@ In this study, logistic regression serves as the optimal analytical method, tail
 This investigation is pivotal for understanding the broader implications of financial decision-making and independence in today's context. The insights gained could be instrumental for financial advisors, policy makers, and individuals striving to comprehend the dynamics of achieving financial independence.
 
 **Project Report:**
-Here is the Financial Independence Analysis Final Report.pdf(./Financial Independence Analysis.pdf)
+Here is the [Financial Independence Analysis Final Report.pdf](./Financial Independence Analysis.pdf)
 
 **Original Data Source:**
 https://www.openintro.org/data/index.php?data=reddit_finance
